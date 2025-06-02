@@ -1,0 +1,25 @@
+[workspace]
+resolver = "2"
+
+members = ["crates/native"]
+
+[workspace.lints.clippy]
+too_many_arguments = "allow"
+
+[profile.dev.package."*"]
+
+debug-assertions = false
+opt-level = 1
+
+[profile.dev.build-override]
+opt-level = 3
+
+[profile.release]
+
+[profile.release.package]
+
+[profile.release.package.native]
+opt-level = 3
+
+[workspace.dependencies]
+native = { path = "crates/native" }

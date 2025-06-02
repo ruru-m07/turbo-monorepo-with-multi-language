@@ -1,0 +1,14 @@
+{
+  "name": "express",
+  "module": "index.ts",
+  "type": "module",
+  "dependencies": {
+    "native": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5.0.0"
+  }
+}
