@@ -2,23 +2,24 @@ name: CI
 env:
   DEBUG: napi:*
   APP_NAME: turbo-monorepo-with-multi-language
-  MACOSX_DEPLOYMENT_TARGET: '10.13'
+  MACOSX_DEPLOYMENT_TARGET: "10.13"
 permissions:
   contents: write
   id-token: write
-'on':
+"on":
   push:
     branches:
       - main
     tags-ignore:
-      - '**'
+      - "**"
     paths-ignore:
-      - '**/*.md'
+      - "**/*.md"
       - LICENSE
-      - '**/*.gitignore'
+      - "**/*.gitignore"
       - .editorconfig
       - docs/**
   pull_request: null
+
 jobs:
   build:
     strategy:
@@ -27,50 +28,60 @@ jobs:
         settings:
           - host: macos-latest
             target: x86_64-apple-darwin
-            build: pnpm build --target x86_64-apple-darwin
+            build: yarn build --target x86_64-apple-darwin
+          - host: macos-latest
+            target: aarch64-apple-darwin
+            build: yarn build --target aarch64-apple-darwin
           - host: windows-latest
-            build: pnpm build --target x86_64-pc-windows-msvc
             target: x86_64-pc-windows-msvc
+            build: yarn build --target x86_64-pc-windows-msvc
+          - host: windows-latest
+            target: i686-pc-windows-msvc
+            build: yarn build --target i686-pc-windows-msvc
+          - host: windows-latest
+            target: aarch64-pc-windows-msvc
+            build: yarn build --target aarch64-pc-windows-msvc
           - host: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian
-            build: pnpm build --target x86_64-unknown-linux-gnu
+            build: yarn build --target x86_64-unknown-linux-gnu
           - host: ubuntu-latest
             target: x86_64-unknown-linux-musl
             docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-alpine
-            build: pnpm build --target x86_64-unknown-linux-musl
+            build: yarn build --target x86_64-unknown-linux-musl
           - host: ubuntu-latest
             target: aarch64-unknown-linux-gnu
             docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian-aarch64
-            build: pnpm build --target aarch64-unknown-linux-gnu
+            build: yarn build --target aarch64-unknown-linux-gnu
           - host: ubuntu-latest
             target: aarch64-unknown-linux-musl
-            docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-alpine
-            build: |-
-              set -e &&
-              rustup target add aarch64-unknown-linux-musl &&
-              pnpm build --target aarch64-unknown-linux-musl
-    name: stable - ${{ matrix.settings.target }} - node@20
+            docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-alpine-aarch64
+            build: yarn build --target aarch64-unknown-linux-musl
+          - host: ubuntu-latest
+            target: armv7-unknown-linux-gnueabihf
+            docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian-armhf
+            build: yarn build --target armv7-unknown-linux-gnueabihf
+
+    name: stable - ${{ matrix.settings.target }} - node@18
     runs-on: ${{ matrix.settings.host }}
+
     steps:
       - uses: actions/checkout@v4
+
       - name: Setup node
         uses: actions/setup-node@v4
         if: ${{ !matrix.settings.docker }}
         with:
-          node-version: 20
-          cache: pnpm
-      - name: Install pnpm
-        uses: pnpm/action-setup@v2
-        with:
-          version: 9
-          run_install: false
+          node-version: 18
+          cache: yarn
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         if: ${{ !matrix.settings.docker }}
         with:
           toolchain: stable
           targets: ${{ matrix.settings.target }}
+
       - name: Cache cargo
         uses: actions/cache@v4
         with:
@@ -81,52 +92,57 @@ jobs:
             .cargo-cache
             target/
           key: ${{ matrix.settings.target }}-cargo-${{ matrix.settings.host }}
+
       - uses: goto-bus-stop/setup-zig@v2
-        if: ${{ matrix.settings.target == 'armv7-unknown-linux-gnueabihf' || matrix.settings.target == 'armv7-unknown-linux-musleabihf' }}
+        if: ${{ matrix.settings.target == 'armv7-unknown-linux-gnueabihf' }}
         with:
-          version: 0.13.0
+          version: 0.11.0
+
       - name: Setup toolchain
         run: ${{ matrix.settings.setup }}
         if: ${{ matrix.settings.setup }}
         shell: bash
+
       - name: Setup node x86
         if: matrix.settings.target == 'i686-pc-windows-msvc'
-        run: pnpm config set supportedArchitectures.cpu "ia32"
+        run: yarn config set supportedArchitectures.cpu "ia32"
         shell: bash
+
       - name: Install dependencies
-        run: pnpm install
+        run: yarn install
+
       - name: Setup node x86
         uses: actions/setup-node@v4
         if: matrix.settings.target == 'i686-pc-windows-msvc'
         with:
-          node-version: 20
-          cache: pnpm
+          node-version: 18
+          cache: yarn
           architecture: x86
+
       - name: Build in docker
         uses: addnab/docker-run-action@v3
         if: ${{ matrix.settings.docker }}
         with:
           image: ${{ matrix.settings.docker }}
-          options: '--user 0:0 -v ${{ github.workspace }}/.cargo-cache/git/db:/usr/local/cargo/git/db -v ${{ github.workspace }}/.cargo/registry/cache:/usr/local/cargo/registry/cache -v ${{ github.workspace }}/.cargo/registry/index:/usr/local/cargo/registry/index -v ${{ github.workspace }}:/build -w /build'
+          options: "--user 0:0 -v ${{ github.workspace }}/.cargo-cache:/root/.cargo/registry/cache -v ${{ github.workspace }}/.cargo/registry/index:/root/.cargo/registry/index -v ${{ github.workspace }}:/build -w /build"
           run: ${{ matrix.settings.build }}
+
       - name: Build
         run: ${{ matrix.settings.build }}
         if: ${{ !matrix.settings.docker }}
         shell: bash
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: bindings-${{ matrix.settings.target }}
-          path: ${{ env.APP_NAME }}.*.node
+          path: crates/native/*.node
           if-no-files-found: error
 
-  # -------------------------
-  # Test jobs below
-  # -------------------------
-
   test-macOS-windows-binding:
-    name: Test bindings on ${{ matrix.settings.target }} - node@${{ matrix.node }}
-    needs: [build]
+    name: Test bindings on ${{ matrix.settings.host }} - node@${{ matrix.node }}
+    needs:
+      - build
     strategy:
       fail-fast: false
       matrix:
@@ -135,151 +151,251 @@ jobs:
             target: x86_64-apple-darwin
           - host: windows-latest
             target: x86_64-pc-windows-msvc
-        node: ['18', '20']
+        node:
+          - "18"
+          - "20"
     runs-on: ${{ matrix.settings.host }}
+
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v2
-        with:
-          version: 9
-          run_install: false
-      - uses: actions/setup-node@v4
+
+      - name: Setup node
+        uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
-          cache: pnpm
-      - run: pnpm install
-      - uses: actions/download-artifact@v4
+          cache: yarn
+
+      - name: Install dependencies
+        run: yarn install
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
         with:
           name: bindings-${{ matrix.settings.target }}
-          path: .
-      - run: ls -R .
+          path: crates/native/
+
+      - name: List packages
+        run: ls -R crates/native/
         shell: bash
-      - run: pnpm test
+
+      - name: Test bindings
+        run: yarn test
 
   test-linux-x64-gnu-binding:
     name: Test bindings on Linux-x64-gnu - node@${{ matrix.node }}
-    needs: [build]
+    needs:
+      - build
     strategy:
       fail-fast: false
       matrix:
-        node: ['18', '20']
+        node:
+          - "18"
+          - "20"
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v2
-        with:
-          version: 9
-          run_install: false
-      - uses: actions/setup-node@v4
+
+      - name: Setup node
+        uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
-          cache: pnpm
-      - run: pnpm install
-      - uses: actions/download-artifact@v4
+          cache: yarn
+
+      - name: Install dependencies
+        run: yarn install
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
         with:
           name: bindings-x86_64-unknown-linux-gnu
-          path: .
-      - run: ls -R .
+          path: crates/native/
+
+      - name: List packages
+        run: ls -R crates/native/
         shell: bash
-      - run: docker run --rm -v $(pwd):/build -w /build node:${{ matrix.node }}-slim pnpm test
+
+      - name: Test bindings
+        run: docker run --rm -v $(pwd):/build -w /build node:${{ matrix.node }}-slim yarn test
 
   test-linux-x64-musl-binding:
     name: Test bindings on x86_64-unknown-linux-musl - node@${{ matrix.node }}
-    needs: [build]
+    needs:
+      - build
     strategy:
       fail-fast: false
       matrix:
-        node: ['18', '20']
+        node:
+          - "18"
+          - "20"
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v2
-        with:
-          version: 9
-          run_install: false
-      - uses: actions/setup-node@v4
+
+      - name: Setup node
+        uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
-          cache: pnpm
-      - run: |
-          pnpm config set supportedArchitectures.libc "musl"
-          pnpm install
-      - uses: actions/download-artifact@v4
+          cache: yarn
+
+      - name: Install dependencies
+        run: |
+          yarn config set supportedArchitectures.libc "musl"
+          yarn install
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
         with:
           name: bindings-x86_64-unknown-linux-musl
-          path: .
-      - run: ls -R .
+          path: crates/native/
+
+      - name: List packages
+        run: ls -R crates/native/
         shell: bash
-      - run: docker run --rm -v $(pwd):/build -w /build node:${{ matrix.node }}-alpine pnpm test
+
+      - name: Test bindings
+        run: docker run --rm -v $(pwd):/build -w /build node:${{ matrix.node }}-alpine yarn test
 
   test-linux-aarch64-gnu-binding:
     name: Test bindings on aarch64-unknown-linux-gnu - node@${{ matrix.node }}
-    needs: [build]
+    needs:
+      - build
     strategy:
       fail-fast: false
       matrix:
-        node: ['18', '20']
+        node:
+          - "18"
+          - "20"
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
         with:
           name: bindings-aarch64-unknown-linux-gnu
-          path: .
-      - run: ls -R .
+          path: crates/native/
+
+      - name: List packages
+        run: ls -R crates/native/
         shell: bash
-      - uses: pnpm/action-setup@v2
-        with:
-          version: 9
-          run_install: false
-      - run: |
-          pnpm config set supportedArchitectures.cpu "arm64"
-          pnpm config set supportedArchitectures.libc "glibc"
-          pnpm install
-      - uses: docker/setup-qemu-action@v3
+
+      - name: Install dependencies
+        run: |
+          yarn config set supportedArchitectures.cpu "arm64"
+          yarn config set supportedArchitectures.libc "glibc"
+          yarn install
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
         with:
           platforms: arm64
+
       - run: docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
-      - uses: addnab/docker-run-action@v3
+
+      - name: Setup node
+        uses: actions/setup-node@v4
         with:
-          image: node:${{ matrix.node }}-slim
-          options: '--platform linux/arm64 -v ${{ github.workspace }}:/build -w /build'
-          run: |
-            set -e
-            pnpm test
-            ls -la
+          node-version: ${{ matrix.node }}
+          cache: yarn
+
+      - name: Test bindings
+        run: docker run --rm -v $(pwd):/build -w /build node:${{ matrix.node }}-slim yarn test
 
   test-linux-aarch64-musl-binding:
     name: Test bindings on aarch64-unknown-linux-musl - node@${{ matrix.node }}
-    needs: [build]
+    needs:
+      - build
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node:
+          - "18"
+          - "20"
+
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
         with:
           name: bindings-aarch64-unknown-linux-musl
-          path: .
-      - run: ls -R .
+          path: crates/native/
+
+      - name: List packages
+        run: ls -R crates/native/
         shell: bash
-      - uses: pnpm/action-setup@v2
-        with:
-          version: 9
-          run_install: false
-      - run: |
-          pnpm config set supportedArchitectures.cpu "arm64"
-          pnpm config set supportedArchitectures.libc "musl"
-          pnpm install
-      - uses: docker/setup-qemu-action@v3
+
+      - name: Install dependencies
+        run: |
+          yarn config set supportedArchitectures.cpu "arm64"
+          yarn config set supportedArchitectures.libc "musl"
+          yarn install
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
         with:
           platforms: arm64
+
       - run: docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
-      - uses: addnab/docker-run-action@v3
+
+      - name: Setup node
+        uses: actions/setup-node@v4
         with:
-          image: node:lts-alpine
-          options: '--platform linux/arm64 -v ${{ github.workspace }}:/build -w /build'
-          run: |
-            set -e
-            pnpm test
+          node-version: ${{ matrix.node }}
+          cache: yarn
+
+      - name: Test bindings
+        run: docker run --rm -v $(pwd):/build -w /build node:${{ matrix.node }}-alpine yarn test
+
+  test-linux-arm-gnueabihf-binding:
+    name: Test bindings on armv7-unknown-linux-gnueabihf - node@${{ matrix.node }}
+    needs:
+      - build
+    strategy:
+      fail-fast: false
+      matrix:
+        node:
+          - "18"
+          - "20"
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: bindings-armv7-unknown-linux-gnueabihf
+          path: crates/native/
+
+      - name: List packages
+        run: ls -R crates/native/
+        shell: bash
+
+      - name: Install dependencies
+        run: |
+          yarn config set supportedArchitectures.cpu "arm"
+          yarn install
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm
+
+      - run: docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
+
+      - name: Setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: yarn
+
+      - name: Test bindings
+        run: docker run --rm -v $(pwd):/build -w /build node:${{ matrix.node }}-slim yarn test
 
   publish:
     name: Publish
@@ -290,36 +406,42 @@ jobs:
       - test-linux-x64-musl-binding
       - test-linux-aarch64-gnu-binding
       - test-linux-aarch64-musl-binding
+      - test-linux-arm-gnueabihf-binding
+
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+
+      - name: Setup node
+        uses: actions/setup-node@v4
         with:
-          node-version: 20
-          cache: pnpm
-      - uses: pnpm/action-setup@v2
-        with:
-          version: 9
-          run_install: false
-      - run: pnpm install
-      - uses: actions/download-artifact@v4
+          node-version: 18
+          cache: yarn
+
+      - name: Install dependencies
+        run: yarn install
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
         with:
           path: artifacts
-      - run: pnpm artifacts
-      - run: ls -R ./npm
-        shell: bash
-      - name: Publish
+
+      - name: Move artifacts to correct location
         run: |
-          npm config set provenance true
-          if git log -1 --pretty=%B | grep "^[0-9]\+\.[0-9]\+\.[0-9]\+$";
-          then
-            echo "//registry.npmjs.org/:_authToken=$NPM_TOKEN" >> ~/.npmrc
-            npm publish --access public
-          elif git log -1 --pretty=%B | grep "^[0-9]\+\.[0-9]\+\.[0-9]\+";
-          then
-            echo "//registry.npmjs.org/:_authToken=$NPM_TOKEN" >> ~/.npmrc
-            npm publish --tag next --access public
-          else
-            echo "Not a release, skipping publish"
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          mkdir -p crates/native/
+          find artifacts -name "*.node" -exec cp {} crates/native/ \;
+          ls -la crates/native/
+
+      - name: List packages
+        run: ls -R crates/native/
+        shell: bash
+
+      - name: Create release package
+        run: |
+          yarn pack
+
+      - name: Upload final package
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-package
+          path: "*.tgz"
+          retention-days: 30
