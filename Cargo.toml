@@ -15,6 +15,11 @@ opt-level = 1
 opt-level = 3
 
 [profile.release]
+opt-level = "s"
+lto = "fat"
+codegen-units = 1    # better optimization at the cost of compile time
+strip = "symbols"
+panic = "abort"
 
 [profile.release.package]
 
